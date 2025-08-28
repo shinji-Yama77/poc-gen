@@ -1,9 +1,30 @@
 [project]
 name = "poc-gen"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI agent that converts meeting recordings into POC applications"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "openai>=1.102.0",
+    "langchain>=0.1.0",
+    "langchain-openai>=0.1.0",
+    "langchain-core>=0.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.4.0",
+    "faster-whisper>=0.9.0",  # Alternative to whisperx for transcription
+    "python-multipart>=0.0.6",  # For handling file uploads
+    "moviepy>=1.0.3",  # For video processing
+    "python-dotenv>=1.0.0",  # For loading environment variables
+    "requests>=2.31.0",  # For making HTTP requests to APIs
 ]
+
+[tool.pytest]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[project.scripts]
+poc-gen = "src.main:main"
