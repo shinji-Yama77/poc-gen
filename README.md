@@ -1,17 +1,19 @@
-# POC-Gen: Meeting Recording to POC Generator
+# POC-Gen: Pitch Recording to AI Business Report Generator
 
-An AI agent that converts meeting recordings into proof-of-concept (POC) applications.
+An AI agent that converts pitch recordings into actionable business reports focused on monetization and marketing strategies.
 
 ## Project Overview
 
-POC-Gen automates the process of turning ideas from meeting recordings into functional proof-of-concept applications. It works through the following steps:
+POC-Gen automates the process of turning user pitch recordings into comprehensive business reports. It works through the following steps:
 
-1. **Video Processing**: Takes a user's video recording from a meeting
-2. **Transcription**: Transcribes the meeting using open-source AI
-3. **Idea Extraction**: Summarizes the meeting contents into potential ideas
-4. **Idea Selection**: Selects the most promising ideas
-5. **POC Generation**: Turns selected ideas into a prompt for a no-code POC builder AI (like Alchemist AI)
-6. **Delivery**: Returns the POC to the user
+1. **Audio/Video Upload**: Takes a user's pitch recording (audio from video)
+2. **Transcription & Structuring**: Transcribes the pitch using open-source AI and structures output as JSON for downstream processing
+3. **Idea Extraction**: Summarizes the transcript into 2–3 key product ideas
+4. **Report Generation**: For each idea, generates a detailed business report emphasizing:
+    - Monetization strategies (including competitor analysis and revenue projections)
+    - Marketing strategies (including differentiation and go-to-market planning)
+    - Success metrics, standout factors, and actionable insights
+5. **Delivery**: Returns the business reports to the user
 
 ## Project Structure
 
@@ -26,10 +28,11 @@ poc-gen/
 │   │   └── orchestrator.py       # LangChain orchestrator agent
 │   ├── modules/
 │   │   ├── __init__.py
-│   │   ├── video_processor.py    # Video processing module
+│   │   ├── audio_processor.py    # Audio/video processing module
 │   │   ├── transcription.py      # Transcription module
-│   │   ├── summarization.py      # Meeting summarization module
-│   │   └── poc_generator.py      # POC generation module
+│   │   ├── summarization.py      # Idea extraction/summarization module
+│   │   ├── report_generator.py   # Business report generation module
+│   │   └── competitor_analysis.py # Competitor data gathering & analysis
 │   └── __init__.py
 ├── main.py                       # Entry point
 ├── pyproject.toml                # Project dependencies
@@ -41,24 +44,25 @@ poc-gen/
 
 ### MCP Server (Model Context Protocol)
 
-The MCP server acts as the orchestrator for all AI communications. It exposes APIs for:
-- Uploading meeting recordings
+Acts as the orchestrator for all AI communications. Exposes APIs for:
+- Uploading pitch recordings
 - Checking processing status
-- Retrieving results
+- Retrieving business reports
 
 ### LangChain Agent Framework
 
-The project uses LangChain to create a structured agent workflow:
+Uses LangChain to create a structured agent workflow:
 - Coordinates multiple AI models
 - Manages the processing pipeline
-- Handles complex reasoning tasks
+- Handles reasoning and report generation
 
 ### Functional Modules
 
-- **Video Processor**: Prepares video for transcription
-- **Transcription**: Uses open-source AI to convert speech to text
+- **Audio Processor**: Prepares audio/video for transcription
+- **Transcription**: Uses open-source AI to transcribe speech to text
 - **Summarization**: Extracts and analyzes ideas from the transcript
-- **POC Generator**: Creates prompts for the no-code POC builder
+- **Report Generator**: Creates business reports focused on monetization and marketing
+- **Competitor Analysis**: Gathers and analyzes competitor data for benchmarking
 
 ## Setup Instructions
 
@@ -84,7 +88,7 @@ The project uses LangChain to create a structured agent workflow:
    ```bash
    # For development
    export OPENAI_API_KEY=your_openai_api_key
-   export POC_BUILDER_API_KEY=your_poc_builder_api_key  # For Alchemist AI or similar
+   export COMPETITOR_API_KEY=your_competitor_data_api_key  # If needed
    ```
 
 ### Running the Application
@@ -98,18 +102,27 @@ The project uses LangChain to create a structured agent workflow:
 
 ## API Endpoints
 
-- `POST /upload-meeting`: Upload a meeting recording
+- `POST /upload-pitch`: Upload a pitch recording
 - `GET /status/{job_id}`: Check processing status
-- `GET /result/{job_id}`: Get processing results
+- `GET /result/{job_id}`: Get generated business reports
+
+## Output Example
+
+Each idea receives a structured business report, including:
+- Monetization strategies and competitor benchmarks
+- Estimated revenue and success analysis
+- Marketing playbook with differentiation tactics
+- Visuals (e.g., Mermaid diagrams for business/process flows)
+- Actionable next steps
 
 ## Future Enhancements
 
 - Add authentication and user management
-- Implement real-time processing status updates
-- Add support for different POC builder platforms
-- Create a web interface for easier interaction
-- Add support for more meeting recording formats
-- Implement feedback loop for improving idea selection
+- Real-time processing status updates
+- Advanced competitor intelligence via web search
+- Web dashboard for interactive report viewing
+- Multi-format report downloads (Markdown, PDF, PPT)
+- Feedback loop for improving report quality
 
 ## Contributing
 
