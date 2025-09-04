@@ -1,6 +1,8 @@
 """
 MCP (Model Context Protocol) server implementation.
-This server orchestrates the workflow for the POC-Gen agent.
+This server orchestrates the workflow for analyzing meeting recordings to extract
+business ideas, analyze their monetization and marketability potential, and generate
+comprehensive reports.
 """
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -10,10 +12,13 @@ import logging
 from typing import Optional, List, Dict, Any
 
 from src.agents.orchestrator import OrchestratorAgent
+from src.core.llm_factory import LLMFactory, LLMConfig
 from src.modules.video_processor import VideoProcessor
 from src.modules.transcription import TranscriptionModule
 from src.modules.summarization import SummarizationModule
-from src.modules.poc_generator import POCGenerator
+from src.modules.monetization_analyzer import MonetizationAnalyzerModule
+from src.modules.marketability_analyzer import MarketabilityAnalyzerModule
+from src.modules.report_generator import ReportGeneratorModule
 
 # Configure logging
 logging.basicConfig(
@@ -24,8 +29,8 @@ logger = logging.getLogger("mcp_server")
 
 # Create FastAPI app
 app = FastAPI(
-    title="POC-Gen MCP Server",
-    description="MCP server that orchestrates the POC generation process from meeting recordings",
+    title="Business Idea Analyzer MCP Server",
+    description="MCP server that analyzes meeting recordings to extract and evaluate business ideas",
     version="0.1.0",
 )
 
@@ -45,33 +50,89 @@ class IdeaSummary(BaseModel):
     confidence_score: float
     relevant_timestamps: List[Dict[str, Any]]
 
-class POCGenerationResult(BaseModel):
-    """Model for POC generation results."""
+class MonetizationAnalysis(BaseModel):
+    """Model for monetization analysis."""
+    target_industry: str
+    competitors: List[Dict[str, Any]]
+    differentiation: str
+    iteration_areas: List[str]
+    feasibility: Dict[str, Any]
+    raw_analysis: Optional[str] = None
+
+class MarketabilityAnalysis(BaseModel):
+    """Model for marketability analysis."""
+    target_audience: List[Dict[str, Any]]
+    promotional_channels: List[Dict[str, Any]]
+    competitor_marketing: Dict[str, Any]
+    niche_opportunities: List[Dict[str, Any]]
+    marketing_positioning: Dict[str, Any]
+    raw_analysis: Optional[str] = None
+
+class AnalyzedIdea(BaseModel):
+    """Model for a fully analyzed idea."""
+    id: str
+    title: str
+    description: str
+    confidence_score: float
+    relevant_timestamps: List[Dict[str, Any]]
+    monetization_analysis: MonetizationAnalysis
+    marketability_analysis: MarketabilityAnalysis
+
+class AnalysisReport(BaseModel):
+    """Model for the final analysis report."""
+    report_id: str
+    generated_at: str
+    executive_summary: Dict[str, Any]
+    idea_reports: List[Dict[str, Any]]
+    recommendations: Dict[str, Any]
+
+class AnalysisResult(BaseModel):
+    """Model for the complete analysis results."""
     job_id: str
-    ideas: List[IdeaSummary]
-    selected_ideas: List[str]
-    poc_details: Dict[str, Any]
-    poc_url: Optional[str] = None
+    ideas: List[AnalyzedIdea]
+    report: AnalysisReport
 
 # In-memory storage for job status
 job_status = {}
 
-# Initialize components
+# Initialize centralized LLM
+logger.info("Initializing centralized LLM for MCP server")
+try:
+    # Create LLM configuration from environment
+    llm_config = LLMConfig.from_env()
+    shared_llm = LLMFactory.create_llm(llm_config.to_dict())
+    
+    # Log which provider is being used
+    provider_info = LLMFactory.get_provider_info(llm_config.to_dict())
+    logger.info(f"Using AI provider: {provider_info}")
+    
+except Exception as e:
+    logger.error(f"Failed to initialize centralized LLM: {e}")
+    logger.warning("Modules will fall back to individual LLM initialization")
+    shared_llm = None
+
+# Initialize components with shared LLM
 video_processor = VideoProcessor()
 transcription_module = TranscriptionModule()
-summarization_module = SummarizationModule()
-poc_generator = POCGenerator()
+summarization_module = SummarizationModule(llm=shared_llm)
+monetization_analyzer = MonetizationAnalyzerModule(llm=shared_llm)
+marketability_analyzer = MarketabilityAnalyzerModule(llm=shared_llm)
+report_generator = ReportGeneratorModule(llm=shared_llm)
+
 orchestrator = OrchestratorAgent(
     video_processor=video_processor,
     transcription_module=transcription_module,
     summarization_module=summarization_module,
-    poc_generator=poc_generator,
+    monetization_analyzer=monetization_analyzer,
+    marketability_analyzer=marketability_analyzer,
+    report_generator=report_generator,
+    shared_llm=shared_llm
 )
 
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "POC-Gen MCP Server is running"}
+    return {"message": "Business Idea Analyzer MCP Server is running"}
 
 @app.post("/upload-meeting", response_model=ProcessingStatus)
 async def upload_meeting(
@@ -124,9 +185,9 @@ async def get_job_status(job_id: str):
         message=status_data["message"],
     )
 
-@app.get("/result/{job_id}", response_model=POCGenerationResult)
+@app.get("/result/{job_id}", response_model=AnalysisResult)
 async def get_job_result(job_id: str):
-    """Get the results of a completed job."""
+    """Get the analysis results of a completed job."""
     if job_id not in job_status:
         return JSONResponse(
             status_code=404,

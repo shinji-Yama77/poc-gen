@@ -1,7 +1,8 @@
 """
 Orchestrator Agent using LangChain.
 This agent coordinates the entire workflow of processing meeting videos,
-transcribing them, summarizing into ideas, and generating POCs.
+transcribing them, extracting ideas, analyzing monetization and marketability,
+and generating comprehensive reports.
 """
 import logging
 from typing import Callable, Dict, List, Any, Optional
@@ -14,11 +15,15 @@ from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_structured_chat_agent
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.language_models import BaseChatModel
 
+from src.core.llm_factory import LLMFactory, LLMConfig
 from src.modules.video_processor import VideoProcessor
 from src.modules.transcription import TranscriptionModule
 from src.modules.summarization import SummarizationModule
-from src.modules.poc_generator import POCGenerator
+from src.modules.monetization_analyzer import MonetizationAnalyzerModule
+from src.modules.marketability_analyzer import MarketabilityAnalyzerModule
+from src.modules.report_generator import ReportGeneratorModule
 
 logger = logging.getLogger("orchestrator_agent")
 
@@ -32,17 +37,46 @@ class OrchestratorAgent:
         video_processor: VideoProcessor,
         transcription_module: TranscriptionModule,
         summarization_module: SummarizationModule,
-        poc_generator: POCGenerator,
+        monetization_analyzer: Optional[MonetizationAnalyzerModule] = None,
+        marketability_analyzer: Optional[MarketabilityAnalyzerModule] = None,
+        report_generator: Optional[ReportGeneratorModule] = None,
+        llm_config: Optional[LLMConfig] = None,
+        shared_llm: Optional[BaseChatModel] = None,
     ):
-        """Initialize the orchestrator agent with necessary components."""
+        """
+        Initialize the orchestrator agent with necessary components.
+        
+        Args:
+            video_processor: Video processing component
+            transcription_module: Transcription component
+            summarization_module: Summarization component
+            monetization_analyzer: Optional monetization analysis component
+            marketability_analyzer: Optional marketability analysis component
+            report_generator: Optional report generation component
+            llm_config: Optional LLM configuration
+            shared_llm: Optional pre-configured LLM instance to share across modules
+        """
         self.video_processor = video_processor
         self.transcription_module = transcription_module
         self.summarization_module = summarization_module
-        self.poc_generator = poc_generator
+        
+        # Initialize or use shared LLM
+        if shared_llm:
+            self.llm = shared_llm
+            logger.info("Using provided shared LLM instance")
+        else:
+            # Create LLM using factory
+            config = llm_config.to_dict() if llm_config else None
+            self.llm = LLMFactory.create_llm(config)
+            logger.info("Created new LLM instance using factory")
+        
+        # Initialize modules with shared LLM
+        self.monetization_analyzer = monetization_analyzer or MonetizationAnalyzerModule(llm=self.llm)
+        self.marketability_analyzer = marketability_analyzer or MarketabilityAnalyzerModule(llm=self.llm)
+        self.report_generator = report_generator or ReportGeneratorModule(llm=self.llm)
         
         # Initialize the LangChain agent
         self.tools = self._create_tools()
-        self.llm = ChatOpenAI(model="gpt-4")
         self.agent_executor = self._create_agent()
     
     def _create_tools(self) -> List[BaseTool]:
@@ -87,25 +121,53 @@ class OrchestratorAgent:
                 """Summarize a transcript and return potential ideas."""
                 return self.summarization_module.summarize_transcript(transcript)
         
-        # Tool for generating POC
-        class POCGenerationTool(BaseTool):
-            name = "generate_poc"
-            description = "Generate a POC from selected ideas"
+        # Tool for analyzing monetization potential
+        class MonetizationAnalysisTool(BaseTool):
+            name = "analyze_monetization"
+            description = "Analyze the monetization potential of ideas"
             
-            def __init__(self, poc_generator: POCGenerator):
+            def __init__(self, monetization_analyzer: MonetizationAnalyzerModule):
                 super().__init__()
-                self.poc_generator = poc_generator
+                self.monetization_analyzer = monetization_analyzer
             
-            def _run(self, selected_ideas: List[Dict[str, Any]]) -> Dict[str, Any]:
-                """Generate a POC from selected ideas."""
-                return self.poc_generator.generate_poc(selected_ideas)
+            def _run(self, ideas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                """Analyze ideas for monetization potential."""
+                return self.monetization_analyzer.analyze_monetization(ideas)
+        
+        # Tool for analyzing marketability
+        class MarketabilityAnalysisTool(BaseTool):
+            name = "analyze_marketability"
+            description = "Analyze the marketability and target audience for ideas"
+            
+            def __init__(self, marketability_analyzer: MarketabilityAnalyzerModule):
+                super().__init__()
+                self.marketability_analyzer = marketability_analyzer
+            
+            def _run(self, ideas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                """Analyze ideas for marketability and target audience."""
+                return self.marketability_analyzer.analyze_marketability(ideas)
+        
+        # Tool for generating reports
+        class ReportGenerationTool(BaseTool):
+            name = "generate_report"
+            description = "Generate a comprehensive report from analyzed ideas"
+            
+            def __init__(self, report_generator: ReportGeneratorModule):
+                super().__init__()
+                self.report_generator = report_generator
+            
+            def _run(self, analyzed_ideas: List[Dict[str, Any]]) -> Dict[str, Any]:
+                """Generate a report from analyzed ideas."""
+                return self.report_generator.generate_report(analyzed_ideas)
         
         # Create and return the tools
         return [
             VideoProcessingTool(self.video_processor),
             TranscriptionTool(self.transcription_module),
             SummarizationTool(self.summarization_module),
-            POCGenerationTool(self.poc_generator),
+            MonetizationAnalysisTool(self.monetization_analyzer),
+            MarketabilityAnalysisTool(self.marketability_analyzer),
+            ReportGenerationTool(self.report_generator),
         ]
     
     def _create_agent(self) -> AgentExecutor:
@@ -115,13 +177,15 @@ class OrchestratorAgent:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """
             You are an AI orchestrator agent responsible for processing meeting recordings,
-            extracting ideas, and generating POCs. Follow these steps:
+            extracting ideas, analyzing their business potential, and generating comprehensive reports.
+            Follow these steps:
             
             1. Process the uploaded meeting video to prepare it for transcription
-            2. Transcribe the meeting recording using an open-source AI transcription model
-            3. Summarize the transcript into potential ideas
-            4. Select the most promising ideas
-            5. Generate a POC based on the selected ideas
+            2. Transcribe the meeting recording to extract the conversation
+            3. Summarize the transcript to identify potential business ideas
+            4. Analyze each idea for monetization potential (market fit, competition, feasibility)
+            5. Analyze each idea for marketability (target audience, promotional strategies)
+            6. Generate a comprehensive report combining all analyses
             
             Use the provided tools to accomplish each step in the workflow.
             """),
@@ -207,41 +271,45 @@ class OrchestratorAgent:
         """
         # Step 1: Process video
         await status_callback(
-            job_id, "processing", 0.2, "Processing video"
+            job_id, "processing", 0.1, "Processing video"
         )
         processed_video_path = self.video_processor.process_video(video_path)
         
         # Step 2: Transcribe video
         await status_callback(
-            job_id, "processing", 0.4, "Transcribing meeting"
+            job_id, "processing", 0.2, "Transcribing meeting"
         )
         transcript = self.transcription_module.transcribe(processed_video_path)
         
-        # Step 3: Summarize transcript
+        # Step 3: Summarize transcript to extract ideas
         await status_callback(
-            job_id, "processing", 0.6, "Summarizing transcript and extracting ideas"
+            job_id, "processing", 0.3, "Summarizing transcript and extracting ideas"
         )
         ideas = self.summarization_module.summarize_transcript(transcript)
         
-        # Step 4: Select most promising ideas
+        # Step 4: Analyze monetization potential
         await status_callback(
-            job_id, "processing", 0.8, "Selecting most promising ideas"
+            job_id, "processing", 0.5, "Analyzing monetization potential of ideas"
         )
-        # This can be done with LangChain agent to select ideas
-        selected_ideas = self._select_ideas(ideas)
+        monetization_analyzed_ideas = self.monetization_analyzer.analyze_monetization(ideas)
         
-        # Step 5: Generate POC
+        # Step 5: Analyze marketability
         await status_callback(
-            job_id, "processing", 0.9, "Generating POC"
+            job_id, "processing", 0.7, "Analyzing marketability and target audience"
         )
-        poc_result = self.poc_generator.generate_poc(selected_ideas)
+        fully_analyzed_ideas = self.marketability_analyzer.analyze_marketability(monetization_analyzed_ideas)
+        
+        # Step 6: Generate comprehensive report
+        await status_callback(
+            job_id, "processing", 0.9, "Generating comprehensive analysis report"
+        )
+        report = self.report_generator.generate_report(fully_analyzed_ideas)
         
         # Prepare the final result
         result = {
             "job_id": job_id,
-            "ideas": ideas,
-            "selected_ideas": [idea["id"] for idea in selected_ideas],
-            "poc_details": poc_result,
+            "ideas": fully_analyzed_ideas,
+            "report": report
         }
         
         return result
