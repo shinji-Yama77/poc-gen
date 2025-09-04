@@ -6,6 +6,9 @@ import logging
 import uuid
 from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
+from langchain_core.language_models import BaseChatModel
+
+from src.core.llm_factory import LLMFactory, LLMConfig
 
 logger = logging.getLogger("summarization")
 
@@ -15,16 +18,61 @@ class SummarizationModule:
     Uses LLMs to analyze the transcript and extract key ideas.
     """
     
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict] = None, llm: Optional[BaseChatModel] = None):
         """
         Initialize the summarization module with configuration.
         
         Args:
             config: Optional configuration for summarization
+            llm: Optional pre-configured LLM instance (provided by orchestrator)
         """
         self.config = config or {}
-        # Initialize the LLM for summarization
-        self.llm = ChatOpenAI(model="gpt-4")
+        
+        # Use provided LLM if available
+        if llm:
+            self.llm = llm
+            logger.info("Using externally provided LLM instance for summarization")
+            return
+        
+        # Otherwise, create own LLM instance using factory (for backward compatibility)
+        logger.info("Creating new LLM instance for summarization")
+        
+        # Convert config to LLMConfig if needed
+        if isinstance(config, dict):
+            llm_config = LLMConfig(
+                ai_provider=config.get("ai_provider", "openai"),
+                temperature=config.get("temperature", 0.3),
+                api_key=config.get("api_key"),
+                model=config.get("model", "gpt-4"),
+                azure_api_key=config.get("azure_api_key"),
+                azure_endpoint=config.get("azure_endpoint"),
+                azure_deployment=config.get("azure_deployment"),
+                azure_api_version=config.get("azure_api_version"),
+            )
+        else:
+            llm_config = LLMConfig.from_env()
+            # Use gpt-4 as default model for summarization
+            if llm_config.model == "gpt-4o":
+                llm_config.model = "gpt-4"
+        
+        # Create LLM using factory
+        try:
+            self.llm = LLMFactory.create_llm(llm_config.to_dict())
+        except ValueError as e:
+            logger.error(f"Failed to create LLM: {e}")
+            # Fallback to a basic OpenAI instance if factory fails
+            import os
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                logger.info("Falling back to basic OpenAI LLM")
+                self.llm = ChatOpenAI(
+                    model="gpt-4",
+                    openai_api_key=api_key,
+                    temperature=0.3,
+                )
+            else:
+                raise ValueError("No valid LLM configuration found and no fallback API key available")
+        
         logger.info("Initialized SummarizationModule")
     
     def summarize_transcript(self, transcript: Dict[str, Any]) -> List[Dict[str, Any]]:
